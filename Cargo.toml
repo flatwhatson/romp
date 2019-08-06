@@ -1,0 +1,13 @@
+[package]
+name = "romp"
+version = "0.0.1"
+authors = ["Andrew Whatson <whatson@gmail.com>"]
+edition = "2018"
+publish = false
+
+[dependencies]
+syn = "0.15"
+quote = "0.6"
+
+[lib]
+proc-macro = true
