@@ -59,25 +59,30 @@ pub fn class(input: TokenStream) -> TokenStream {
   let names3 = &names;
   let names4 = &names;
   let names5 = &names;
+  let names6 = &names;
+  let names7 = &names;
+  let names8 = &names;
 
   let types1 = &types;
   let types2 = &types;
   let types3 = &types;
+  let types4 = &types;
 
   let output = quote! {
     #[derive(Debug)]
     pub struct #name {
-      #(
-        #names1 : #types1
-      ),*
+      #(#names1: #types1),*
     }
     impl #name {
+      pub fn new(#(#names2: #types2),*) -> Self {
+        Self { #(#names3: #names4),* }
+      }
       #(
-        pub fn #getters(&self) -> &#types2 {
-          &self.#names2
+        pub fn #getters(&self) -> &#types3 {
+          &self.#names5
         }
-        pub fn #setters(&mut self, #names3: #types3) {
-          self.#names4 = #names5
+        pub fn #setters(&mut self, #names6: #types4) {
+          self.#names7 = #names8
         }
       )*
     }
