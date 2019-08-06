@@ -7,7 +7,7 @@ use syn::punctuated::Punctuated;
 use syn::{braced, parse_macro_input};
 use syn::{Ident, Result, Token, Type};
 
-struct Model {
+struct Class {
   name: Ident,
   fields: Punctuated<Field, Token![,]>,
 }
@@ -17,13 +17,13 @@ struct Field {
   ftype: Type,
 }
 
-impl Parse for Model {
+impl Parse for Class {
   fn parse(input: ParseStream) -> Result<Self> {
     let name = input.parse()?;
     let content;
     braced!(content in input);
     let fields = content.parse_terminated(Field::parse)?;
-    Ok(Model { name, fields })
+    Ok(Class { name, fields })
   }
 }
 
@@ -38,7 +38,7 @@ impl Parse for Field {
 
 #[proc_macro]
 pub fn class(input: TokenStream) -> TokenStream {
-  let Model { name, fields } = parse_macro_input!(input);
+  let Class { name, fields } = parse_macro_input!(input);
 
   let mut names = Vec::new();
   let mut types = Vec::new();

@@ -6,7 +6,10 @@ class!(Foo {
 });
 
 fn main() {
-  let mut foo = Foo { name: "asdf".to_string(), count: 10 };
+  let mut foo = Foo {
+    name: "asdf".to_string(),
+    count: 10,
+  };
   println!("Foo {{ name: \"{}\", count: {} }}", foo.name(), foo.count());
 
   foo.set_name("qwer".to_string());
