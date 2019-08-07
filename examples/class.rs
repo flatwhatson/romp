@@ -1,4 +1,3 @@
-
 mod foo {
   use romp::class;
 
