@@ -1,13 +1,11 @@
 use super::field::Field;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::parse::{Parse, ParseStream};
-use syn::punctuated::Punctuated;
-use syn::{braced, Ident, Result, Token};
+use syn::Ident;
 
 pub struct Class {
-  name: Ident,
-  fields: Vec<Field>,
+  pub name: Ident,
+  pub fields: Vec<Field>,
 }
 
 impl Class {
@@ -46,25 +44,14 @@ impl Class {
   }
 
   fn make_constructor(&self) -> TokenStream {
-    let names1 = self.fields.iter().map(|f| &f.fname);
-    let names2 = self.fields.iter().map(|f| &f.fname);
-    let names3 = self.fields.iter().map(|f| &f.fname);
-    let types1 = self.fields.iter().map(|f| &f.ftype);
+    let names1 = self.fields.iter().map(|f| &f.name);
+    let names2 = self.fields.iter().map(|f| &f.name);
+    let names3 = self.fields.iter().map(|f| &f.name);
+    let types1 = self.fields.iter().map(|f| &f.ty);
     quote! {
       pub fn new(#(#names1: #types1),*) -> Self {
         Self { #(#names2: #names3),* }
       }
     }
-  }
-}
-
-impl Parse for Class {
-  fn parse(input: ParseStream) -> Result<Self> {
-    let name = input.parse()?;
-    let block;
-    braced!(block in input);
-    let items = Punctuated::<Field, Token![,]>::parse_terminated(&block)?;
-    let fields = items.into_iter().collect();
-    Ok(Class { name, fields })
   }
 }
