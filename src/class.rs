@@ -81,17 +81,69 @@ impl Class {
   }
 
   pub fn generate(&self) -> TokenStream {
-    let definition = self.make_definition();
-    let implementation = self.make_implementation();
+    let struct_def = self.make_struct();
+    let trait_def = self.make_trait();
+    let struct_impl = self.make_struct_impl();
+    let trait_impl = self.make_trait_impl();
+    let parent_impl = self.make_parent_impl();
 
     quote! {
-      #definition
-      #implementation
+      #struct_def
+      #trait_def
+      #struct_impl
+      #trait_impl
+      #parent_impl
     }
   }
 
-  fn make_definition(&self) -> TokenStream {
-    let name = &self.name;
+  fn make_trait(&self) -> TokenStream {
+    let trait_name = format!("A{}", self.name);
+    let trait_ident = Ident::new(&trait_name, self.name.span());
+
+    let getters = self.fields.iter().map(|f| f.make_trait_getter());
+    let setters = self.fields.iter().map(|f| f.make_trait_setter());
+
+    quote! {
+      pub trait #trait_ident {
+        #( #getters #setters )*
+      }
+    }
+  }
+
+  fn make_trait_impl(&self) -> TokenStream {
+    let trait_name = format!("A{}", self.name);
+    let trait_ident = Ident::new(&trait_name, self.name.span());
+    let struct_ident = &self.name;
+
+    let getters = self.fields.iter().map(|f| f.make_field_getter());
+    let setters = self.fields.iter().map(|f| f.make_field_setter());
+
+    quote! {
+      impl #trait_ident for #struct_ident {
+        #( #getters #setters )*
+      }
+    }
+  }
+
+  fn make_parent_impl(&self) -> Option<TokenStream> {
+    let parent = self.resolved_parent.as_ref()?;
+
+    let parent_name = format!("A{}", parent.name);
+    let parent_ident = Ident::new(&parent_name, parent.name.span());
+    let struct_ident = &self.name;
+
+    let getters = parent.fields.iter().map(|f| f.make_parent_getter());
+    let setters = parent.fields.iter().map(|f| f.make_parent_setter());
+
+    Some(quote! {
+      impl #parent_ident for #struct_ident {
+        #( #getters #setters )*
+      }
+    })
+  }
+
+  fn make_struct(&self) -> TokenStream {
+    let struct_ident = &self.name;
     let mut fields = Vec::new();
 
     if let Some(parent) = self.resolved_parent.as_ref() {
@@ -105,33 +157,19 @@ impl Class {
 
     quote! {
       #[derive(Debug)]
-      pub struct #name {
+      pub struct #struct_ident {
         #(#fields),*
       }
     }
   }
 
-  fn make_implementation(&self) -> TokenStream {
-    let name = &self.name;
-    let mut methods = Vec::new();
-
-    methods.push(self.make_constructor());
-
-    if let Some(parent) = self.resolved_parent.as_ref() {
-      for field in &parent.fields {
-        methods.push(field.make_parent_getter());
-        methods.push(field.make_parent_setter());
-      }
-    }
-
-    for field in &self.fields {
-      methods.push(field.make_getter());
-      methods.push(field.make_setter());
-    }
+  fn make_struct_impl(&self) -> TokenStream {
+    let struct_ident = &self.name;
+    let constructor = self.make_constructor();
 
     quote! {
-      impl #name {
-        #(#methods)*
+      impl #struct_ident {
+        #constructor
       }
     }
   }
@@ -149,7 +187,9 @@ impl Class {
         parent_args.push(quote!(#name));
       }
 
-      self_args.push(quote!(parent_: #parent_name { #(#parent_args),* }));
+      self_args.push(quote! {
+        parent_: #parent_name::new(#(#parent_args),*)
+      });
     }
 
     for Field { name, ty } in &self.fields {
