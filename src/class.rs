@@ -158,8 +158,7 @@ impl Class {
     quote! {
       #[derive(Debug)]
       pub struct #struct_ident {
-        #parent
-        #( #fields ),*
+        #parent #( #fields ),*
       }
     }
   }
@@ -176,37 +175,34 @@ impl Class {
   }
 
   fn make_constructor(&self) -> TokenStream {
-    let parent_args = self
+    let args = self
       .ancestors
       .iter()
       .rev()
-      .flat_map(|p| p.fields.iter().map(|Field { name, ty }| quote!(#name: #ty)));
+      .flat_map(|p| p.fields.iter())
+      .chain(self.fields.iter())
+      .map(|f| {
+        let name = &f.name;
+        let ty = &f.ty;
+        quote!(#name: #ty)
+      });
 
-    let self_args = self
-      .fields
-      .iter()
-      .map(|Field { name, ty }| quote!(#name: #ty));
-
-    let args = parent_args.chain(self_args);
-
-    let parent_field = if !self.ancestors.is_empty() {
-      let parent_type = &self.ancestors.first().unwrap().name;
-      let parent_fields = self
+    let parent = self.ancestors.first().map(|p| {
+      let name = &p.name;
+      let fields = self
         .ancestors
         .iter()
         .rev()
-        .flat_map(|p| p.fields.iter().map(|Field { name, .. }| name));
+        .flat_map(|p| p.fields.iter().map(|f| &f.name));
 
-      Some(quote!(parent_: #parent_type::new(#( #parent_fields ),*),))
-    } else {
-      None
-    };
+      quote!(parent_: #name::new(#( #fields ),*),)
+    });
 
-    let self_fields = self.fields.iter().map(|Field { name, .. }| name);
+    let fields = self.fields.iter().map(|f| &f.name);
 
     quote! {
       pub fn new(#( #args ),*) -> Self {
-        Self { #parent_field #( #self_fields ),* }
+        Self { #parent #( #fields ),* }
       }
     }
   }
