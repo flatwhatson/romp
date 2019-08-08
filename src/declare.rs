@@ -33,9 +33,17 @@ fn parse_class(input: ParseStream) -> Result<Class> {
   input.parse::<kw::class>()?;
 
   let name = input.parse()?;
+
+  let parent = if input.peek(kw::extends) {
+    input.parse::<kw::extends>()?;
+    Some(input.parse()?)
+  } else {
+    None
+  };
+
   let fields = parse_fields(input)?;
 
-  Ok(Class { name, fields })
+  Ok(Class::new(name, parent, fields))
 }
 
 fn parse_fields(input: ParseStream) -> Result<Vec<Field>> {
