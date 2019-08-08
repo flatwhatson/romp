@@ -14,7 +14,7 @@ pub struct Class {
   pub name: Ident,
   pub parent: Option<Ident>,
   pub fields: Vec<Field>,
-  resolved_parent: Option<Box<Class>>,
+  ancestors: Vec<Box<Class>>,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +40,7 @@ impl From<&RegClass> for Class {
       name: parse_str(&class.name).unwrap(),
       parent: class.parent.as_ref().map(|p| parse_str(p).unwrap()),
       fields: class.fields.iter().map(|f| f.into()).collect(),
-      resolved_parent: None,
+      ancestors: Vec::new(),
     }
   }
 }
@@ -51,7 +51,7 @@ impl Class {
       name,
       parent,
       fields,
-      resolved_parent: None,
+      ancestors: Vec::new(),
     };
     this.resolve();
     this.register();
@@ -59,40 +59,38 @@ impl Class {
   }
 
   fn register(&self) {
-    let class: RegClass = self.into();
-    let name = format!("{}", self.name);
-
     let mut registry = CLASS_REGISTRY.lock().unwrap();
-    registry.insert(name, class);
+    let class: RegClass = self.into();
+    registry.insert(class.name.clone(), class);
   }
 
   fn resolve(&mut self) {
-    if let Some(parent) = &self.parent {
-      let registry = CLASS_REGISTRY.lock().unwrap();
-
+    let registry = CLASS_REGISTRY.lock().unwrap();
+    let mut current = &self.parent;
+    while let Some(parent) = current {
       let lookup = format!("{}", parent);
       if let Some(resolved) = registry.get(&lookup) {
-        self.resolved_parent = Some(Box::new(resolved.into()));
-        return;
+        self.ancestors.push(Box::new(resolved.into()));
+        current = &self.ancestors.last().unwrap().parent;
+      } else {
+        panic!("unable to resolve parent {}", parent);
       }
-
-      panic!("unable to resolve parent {}", parent);
     }
   }
 
   pub fn generate(&self) -> TokenStream {
     let struct_def = self.make_struct();
-    let trait_def = self.make_trait();
     let struct_impl = self.make_struct_impl();
+    let trait_def = self.make_trait();
     let trait_impl = self.make_trait_impl();
-    let parent_impl = self.make_parent_impl();
+    let parent_impls = self.make_parent_impls();
 
     quote! {
       #struct_def
-      #trait_def
       #struct_impl
+      #trait_def
       #trait_impl
-      #parent_impl
+      #parent_impls
     }
   }
 
@@ -111,9 +109,9 @@ impl Class {
   }
 
   fn make_trait_impl(&self) -> TokenStream {
+    let struct_ident = &self.name;
     let trait_name = format!("A{}", self.name);
     let trait_ident = Ident::new(&trait_name, self.name.span());
-    let struct_ident = &self.name;
 
     let getters = self.fields.iter().map(|f| f.make_field_getter());
     let setters = self.fields.iter().map(|f| f.make_field_setter());
@@ -125,40 +123,43 @@ impl Class {
     }
   }
 
-  fn make_parent_impl(&self) -> Option<TokenStream> {
-    let parent = self.resolved_parent.as_ref()?;
-
-    let parent_name = format!("A{}", parent.name);
-    let parent_ident = Ident::new(&parent_name, parent.name.span());
+  fn make_parent_impls(&self) -> TokenStream {
     let struct_ident = &self.name;
+    let mut output = TokenStream::new();
 
-    let getters = parent.fields.iter().map(|f| f.make_parent_getter());
-    let setters = parent.fields.iter().map(|f| f.make_parent_setter());
+    for parent in &self.ancestors {
+      let trait_name = format!("A{}", parent.name);
+      let trait_ident = Ident::new(&trait_name, parent.name.span());
 
-    Some(quote! {
-      impl #parent_ident for #struct_ident {
-        #( #getters #setters )*
-      }
-    })
+      let getters = parent.fields.iter().map(|f| f.make_parent_getter());
+      let setters = parent.fields.iter().map(|f| f.make_parent_setter());
+
+      output = quote! {
+        #output
+        impl #trait_ident for #struct_ident {
+          #( #getters #setters )*
+        }
+      };
+    }
+
+    output
   }
 
   fn make_struct(&self) -> TokenStream {
     let struct_ident = &self.name;
-    let mut fields = Vec::new();
 
-    if let Some(parent) = self.resolved_parent.as_ref() {
-      let name = &parent.name;
-      fields.push(quote!(parent_: #name));
-    }
+    let parent = self.ancestors.first().map(|p| {
+      let name = &p.name;
+      quote!(parent_: #name,)
+    });
 
-    for field in &self.fields {
-      fields.push(field.make_definition());
-    }
+    let fields = self.fields.iter().map(|f| f.make_definition());
 
     quote! {
       #[derive(Debug)]
       pub struct #struct_ident {
-        #(#fields),*
+        #parent
+        #( #fields ),*
       }
     }
   }
@@ -175,31 +176,37 @@ impl Class {
   }
 
   fn make_constructor(&self) -> TokenStream {
-    let mut func_args = Vec::new();
-    let mut self_args = Vec::new();
+    let parent_args = self
+      .ancestors
+      .iter()
+      .rev()
+      .flat_map(|p| p.fields.iter().map(|Field { name, ty }| quote!(#name: #ty)));
 
-    if let Some(parent) = self.resolved_parent.as_ref() {
-      let parent_name = &parent.name;
-      let mut parent_args = Vec::new();
+    let self_args = self
+      .fields
+      .iter()
+      .map(|Field { name, ty }| quote!(#name: #ty));
 
-      for Field { name, ty } in &parent.fields {
-        func_args.push(quote!(#name: #ty));
-        parent_args.push(quote!(#name));
-      }
+    let args = parent_args.chain(self_args);
 
-      self_args.push(quote! {
-        parent_: #parent_name::new(#(#parent_args),*)
-      });
-    }
+    let parent_field = if !self.ancestors.is_empty() {
+      let parent_type = &self.ancestors.first().unwrap().name;
+      let parent_fields = self
+        .ancestors
+        .iter()
+        .rev()
+        .flat_map(|p| p.fields.iter().map(|Field { name, .. }| name));
 
-    for Field { name, ty } in &self.fields {
-      func_args.push(quote!(#name: #ty));
-      self_args.push(quote!(#name));
-    }
+      Some(quote!(parent_: #parent_type::new(#( #parent_fields ),*),))
+    } else {
+      None
+    };
+
+    let self_fields = self.fields.iter().map(|Field { name, .. }| name);
 
     quote! {
-      pub fn new(#(#func_args),*) -> Self {
-        Self { #(#self_args),* }
+      pub fn new(#( #args ),*) -> Self {
+        Self { #parent_field #( #self_fields ),* }
       }
     }
   }
