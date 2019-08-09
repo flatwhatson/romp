@@ -7,7 +7,6 @@ pub struct Field {
   pub ty: Type,
 }
 
-#[derive(Clone, Debug)]
 pub struct RegField {
   pub name: String,
   pub ty: String,
@@ -39,15 +38,6 @@ impl From<&RegField> for Field {
 }
 
 impl Field {
-  pub fn make_definition(&self) -> TokenStream {
-    let name1 = &self.name;
-    let type1 = &self.ty;
-
-    quote! {
-      #name1: #type1
-    }
-  }
-
   pub fn make_trait_getter(&self) -> TokenStream {
     self.make_getter_(MethodStyle::Trait)
   }

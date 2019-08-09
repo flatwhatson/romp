@@ -14,10 +14,9 @@ pub struct Class {
   pub name: Ident,
   pub parent: Option<Ident>,
   pub fields: Vec<Field>,
-  ancestors: Vec<Box<Class>>,
+  ancestors: Vec<Class>,
 }
 
-#[derive(Clone, Debug)]
 pub struct RegClass {
   pub name: String,
   pub parent: Option<String>,
@@ -70,7 +69,7 @@ impl Class {
     while let Some(parent) = current {
       let lookup = format!("{}", parent);
       if let Some(resolved) = registry.get(&lookup) {
-        self.ancestors.push(Box::new(resolved.into()));
+        self.ancestors.push(resolved.into());
         current = &self.ancestors.last().unwrap().parent;
       } else {
         panic!("unable to resolve parent {}", parent);
@@ -87,10 +86,10 @@ impl Class {
 
     quote! {
       #struct_def
-      #struct_impl
       #trait_def
-      #trait_impl
+      #struct_impl
       #parent_impls
+      #trait_impl
     }
   }
 
@@ -98,11 +97,18 @@ impl Class {
     let trait_name = format!("A{}", self.name);
     let trait_ident = Ident::new(&trait_name, self.name.span());
 
+    let parent = self.ancestors.first().map(|p| {
+      let super_name = format!("A{}", p.name);
+      let super_ident = Ident::new(&super_name, p.name.span());
+
+      quote!(: #super_ident)
+    });
+
     let getters = self.fields.iter().map(|f| f.make_trait_getter());
     let setters = self.fields.iter().map(|f| f.make_trait_setter());
 
     quote! {
-      pub trait #trait_ident {
+      pub trait #trait_ident #parent {
         #( #getters #setters )*
       }
     }
@@ -127,7 +133,7 @@ impl Class {
     let struct_ident = &self.name;
     let mut output = TokenStream::new();
 
-    for parent in &self.ancestors {
+    for parent in self.ancestors.iter().rev() {
       let trait_name = format!("A{}", parent.name);
       let trait_ident = Ident::new(&trait_name, parent.name.span());
 
@@ -148,17 +154,23 @@ impl Class {
   fn make_struct(&self) -> TokenStream {
     let struct_ident = &self.name;
 
-    let parent = self.ancestors.first().map(|p| {
+    let parent_field = self.ancestors.first().map(|p| {
       let name = &p.name;
-      quote!(parent_: #name,)
+      quote!(parent_: #name)
     });
 
-    let fields = self.fields.iter().map(|f| f.make_definition());
+    let self_fields = self.fields.iter().map(|f| {
+      let name = &f.name;
+      let ty = &f.ty;
+      quote!(#name: #ty)
+    });
+
+    let fields = parent_field.into_iter().chain(self_fields);
 
     quote! {
       #[derive(Debug)]
       pub struct #struct_ident {
-        #parent #( #fields ),*
+        #( #fields ),*
       }
     }
   }
@@ -187,7 +199,7 @@ impl Class {
         quote!(#name: #ty)
       });
 
-    let parent = self.ancestors.first().map(|p| {
+    let parent_field = self.ancestors.first().map(|p| {
       let name = &p.name;
       let fields = self
         .ancestors
@@ -195,14 +207,19 @@ impl Class {
         .rev()
         .flat_map(|p| p.fields.iter().map(|f| &f.name));
 
-      quote!(parent_: #name::new(#( #fields ),*),)
+      quote!(parent_: #name::new(#( #fields ),*))
     });
 
-    let fields = self.fields.iter().map(|f| &f.name);
+    let self_fields = self.fields.iter().map(|f| {
+      let name = &f.name;
+      quote!(#name)
+    });
+
+    let fields = parent_field.into_iter().chain(self_fields);
 
     quote! {
       pub fn new(#( #args ),*) -> Self {
-        Self { #parent #( #fields ),* }
+        Self { #( #fields ),* }
       }
     }
   }
